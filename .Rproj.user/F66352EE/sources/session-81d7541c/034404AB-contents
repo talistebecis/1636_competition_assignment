@@ -1,0 +1,160 @@
+---
+title: "1636 Competition - The Cross Validators"
+author: "Talis Tebecis"
+subtitle: "Data Science and Machine Learning 1636"
+date: "Feb 2023"
+output: 
+  github_document:
+    pandoc_args: --webtex
+    toc: False
+    toc_depth: 2
+    number_sections: False
+---
+
+## Setup
+
+First we need to import and setup the data and required packages.
+
+```{r}
+#load packages
+pacman::p_load(here, tidyverse, ranger, caret, tuneRanger, BMS)
+
+#load training data
+training_data <- read.csv(here("input_data", "trainig_test_data.csv"))
+
+#load hold out data
+holdout_data <- read.csv(here("input_data", "holdout_data.csv"))
+
+```
+
+## Data cleaning
+
+Then, we check the data for NAs and impute where necessary using median for numerical variables and mode for categorical variables.
+
+```{r}
+#check NAs - we find 21,668 observations with NAs, so we shouldn't just drop them
+training_data %>% filter_all(any_vars(is.na(.))) %>% count()
+training_data %>% summarise_all(funs(sum(is.na(.))))
+
+#replace NAs with medians of columns for numeric values
+training_data1 <- training_data %>% 
+  mutate_if(is.numeric, funs(replace(., is.na(.), median(., na.rm = TRUE))))
+
+#check NAs - reduced down to 12,728 obs with NAs
+training_data1 %>% filter_all(any_vars(is.na(.))) %>% count()
+training_data1 %>% summarise_all(funs(sum(is.na(.))))
+
+#create mode function
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+#replace NAs with modes of columns for character values
+training_data2 <- training_data1 %>% 
+  mutate_if(is.character, funs(replace(., is.na(.), getmode(.))))
+
+#check NAs - reduced down to 0 obs with NAs
+training_data2 %>% filter_all(any_vars(is.na(.))) %>% count()
+
+```
+
+## Random Forest
+
+Next, we try a Random Forest model using tuneRanger
+
+```{r}
+#basic random forest
+rf_1 = ranger(data = training_data2, dependent.variable.name = "income", importance = "impurity")
+
+#cross validation setup
+control = trainControl(method = "cv", number = 5)
+
+#tuning grid
+tuning_grid = expand.grid(mtry = seq(5, 25, by = 5), splitrule = "variance", min.node.size = seq(1, 10, by = 2))
+
+#run models and extract best model
+rf_caret = train(data = training_data2,
+                 income ~ .,
+                 method = "ranger",
+                 trControl = control,
+                 tuneGrid = tuning_grid,
+                 importance = "impurity")
+rf_caret
+rf_2 = rf_caret$finalModel
+
+#predictions
+pred_rf_2 = predict(rf_2, data = holdout_data)
+
+```
+
+## Boosted Regression
+
+Next, we test some Boosted Regression Tree models.
+
+```{r}
+#run basic model with 5 fold cross validation
+eval_gb_1 = xgb.cv(data = as.matrix(training_data2[,2:30]), label = training_data2[,1], nrounds = 100, nfold = 5)
+
+#setup control
+control = trainControl(method = "cv", number = 5)
+
+#tuning grid
+tuning_grid = expand.grid(nrounds = seq(50, 150, by = 50), max_depth = 6, eta = seq(0.2, 0.4, by = 0.1), gamma = seq(0.01, 0.03, by = 0.01), colsample_bytree = 1, min_child_weight = 1, subsample = 1)
+
+#run model annd extract models
+gb_caret = train(data = training_data2,
+                 income ~ .,
+                 method = "xgbTree",
+                 trControl = control,
+                 tuneGrid = tuning_grid,
+                 verbosity = 0)
+gb_caret
+gb_2 = gb_caret$finalModel
+
+#predictions
+pred_gb_2 = predict(gb_2, newdata = as.matrix(holdout_data))
+
+```
+
+
+## Bayesian Model Averaging
+
+Now, we make predictions using Bayesian Model Averaging.
+
+```{r}
+#run BMA model
+bma_1 <- bms(training_data2,
+           mprior="uniform",
+           burn=20000,
+           iter=50000,
+           nmodel=2000,
+           g="BRIC",
+           mcmc="bd")
+  
+#predictions
+bma_pred <- pred.density(bma_1, holdout_data)
+
+#do we need to extract the predictions from here somehow???
+
+```
+
+
+
+## Compare models
+
+```{r}
+#basic random forest prediction error
+rf_1$prediction.error
+
+#tuned random forest prediction error
+rf_2$prediction.error
+
+#basic boosted regression prediction error
+min(eval_gb_1$evaluation_log$test_rmse_mean)^2
+
+#tuned boosted regression prediction error
+min(gb_caret$results$RMSE)^2
+
+```
+

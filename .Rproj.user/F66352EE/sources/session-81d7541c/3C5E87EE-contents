@@ -1,0 +1,40 @@
+---
+title: "1636 Competition"
+author: "Lukas Schmoigl"
+subtitle: "Data Science and Machine Learning 1827"
+date: "12 2022"
+output: 
+  github_document:
+    pandoc_args: --webtex
+    toc: False
+    toc_depth: 2
+    number_sections: False
+---
+
+# Assignment: Machine Learning Competition
+
+* There are two data sets training data.csv and holdout_data.csv in the input_data directory of this repo
+* Set up a model predicting the variable "income" in the data set training_data.csv
+  + Use this model to predict the missing income variable in the holdout_data.csv dataset
+  + All data wrangling, feature engineering and modeling steps should be done in this repo. We want to see
+  your work. Document what you are doing in a markdown file!
+* There are NA values in the data.
+* Data has been altered - do not try to find it online!
+* Give us back a file called predictions.csv containing your predictions.
+  + The file should be located in the output_data directory of the repo
+  + The file has to be of the same length and ordering as the holdout_data.csv file!
+  + The predicted column has to be named income_group_name! This means if your group name is group1 the column should be named income_group1!
+
+Points will be given according to the formula:
+
+
+$$
+\begin{cases} 
+      20 & RMSE < 900 \\
+      \frac{1500-RMSE}{600} \cdot 20 & 900\leq RMSE\leq 1500 \\
+      0 & 1500 < RMSE 
+\end{cases}
+$$
+
+
+Good Luck!
