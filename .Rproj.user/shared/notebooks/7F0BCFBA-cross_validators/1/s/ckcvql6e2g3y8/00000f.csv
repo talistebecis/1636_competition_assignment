@@ -1,6 +1,0 @@
-"0","#cross validation setup
-control = trainControl(method = ""cv"", number = 5)
-"
-"2","Error in trainControl(method = ""cv"", number = 5) : 
-  could not find function ""trainControl""
-"

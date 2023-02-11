@@ -25,6 +25,16 @@ training_data <- read.csv(here("input_data", "trainig_test_data.csv"))
 #load hold out data
 holdout_data <- read.csv(here("input_data", "holdout_data.csv"))
 
+#turn all categorical variables into factors, then into numerical variables, for computational simplicity
+holdout_data <- as.data.frame(unclass(holdout_data),
+                                stringsAsFactors = TRUE)
+holdout_data <- lapply(holdout_data, as.numeric) %>% 
+  as.data.frame()
+
+#replace NAs with medians of columns
+holdout_data <- holdout_data %>% 
+  mutate_if(is.numeric, funs(replace(., is.na(.), median(., na.rm = TRUE))))
+
 ```
 
 ## Data cleaning
@@ -44,7 +54,7 @@ training_data1 <- training_data %>%
 training_data1 %>% filter_all(any_vars(is.na(.))) %>% count()
 training_data1 %>% summarise_all(funs(sum(is.na(.))))
 
-#create mode function
+#create mode function for categorical variables
 getmode <- function(v) {
    uniqv <- unique(v)
    uniqv[which.max(tabulate(match(v, uniqv)))]
@@ -57,6 +67,12 @@ training_data2 <- training_data1 %>%
 #check NAs - reduced down to 0 obs with NAs
 training_data2 %>% filter_all(any_vars(is.na(.))) %>% count()
 
+#turn all categorical variables into factors, then into numerical variables, for computational simplicity
+training_data2 <- as.data.frame(unclass(training_data2),
+                                stringsAsFactors = TRUE)
+training_data2 <- lapply(training_data2, as.numeric) %>% 
+  as.data.frame()
+
 ```
 
 ## Random Forest
@@ -67,24 +83,26 @@ Next, we try a Random Forest model using tuneRanger
 #basic random forest
 rf_1 = ranger(data = training_data2, dependent.variable.name = "income", importance = "impurity")
 
+#tuned random forest
 #cross validation setup
-control = trainControl(method = "cv", number = 5)
+control <- trainControl(method = "cv", number = 8)
 
 #tuning grid
-tuning_grid = expand.grid(mtry = seq(5, 25, by = 5), splitrule = "variance", min.node.size = seq(1, 10, by = 2))
+tuning_grid <- expand.grid(mtry = c(5, 10, 15, 20, 25, 28),
+                           splitrule = "variance",
+                           min.node.size = seq(2, 8, by = 3))
 
 #run models and extract best model
-rf_caret = train(data = training_data2,
+rf_caret = caret::train(data = training_data2,
                  income ~ .,
                  method = "ranger",
                  trControl = control,
                  tuneGrid = tuning_grid,
                  importance = "impurity")
-rf_caret
-rf_2 = rf_caret$finalModel
+rf_2 <- rf_caret$finalModel
 
 #predictions
-pred_rf_2 = predict(rf_2, data = holdout_data)
+pred_rf_2 <- predict(rf_2, data = holdout_data)
 
 ```
 
@@ -93,27 +111,56 @@ pred_rf_2 = predict(rf_2, data = holdout_data)
 Next, we test some Boosted Regression Tree models.
 
 ```{r}
-#run basic model with 5 fold cross validation
-eval_gb_1 = xgb.cv(data = as.matrix(training_data2[,2:30]), label = training_data2[,1], nrounds = 100, nfold = 5)
-
 #setup control
-control = trainControl(method = "cv", number = 5)
+control <- trainControl(method = "cv", number = 5)
+
+###tuning attempt 1
 
 #tuning grid
-tuning_grid = expand.grid(nrounds = seq(50, 150, by = 50), max_depth = 6, eta = seq(0.2, 0.4, by = 0.1), gamma = seq(0.01, 0.03, by = 0.01), colsample_bytree = 1, min_child_weight = 1, subsample = 1)
+tuning_grid <- expand.grid(nrounds = c(130, 150, 170),
+                          max_depth = c(5, 6, 7),
+                          eta = c(0.2, 0.3, 0.4),
+                          gamma = 0.02,
+                          colsample_bytree = 1,
+                          min_child_weight = 1,
+                          subsample = 1)
 
-#run model annd extract models
-gb_caret = train(data = training_data2,
+#run model and extract models
+gb_caret <- caret::train(data = training_data2,
                  income ~ .,
                  method = "xgbTree",
                  trControl = control,
                  tuneGrid = tuning_grid,
                  verbosity = 0)
-gb_caret
-gb_2 = gb_caret$finalModel
+gb_1 <- gb_caret$finalModel
 
 #predictions
-pred_gb_2 = predict(gb_2, newdata = as.matrix(holdout_data))
+pred_gb_1 <- predict(gb_1, newdata = as.matrix(holdout_data))
+
+
+###tuning attempt 2
+
+#tuning grid
+tuning_grid <- expand.grid(nrounds = c(170, 180, 190),
+                          max_depth = 5,
+                          eta = c(0.1, 0.2),
+                          gamma = 0.02,
+                          colsample_bytree = 1,
+                          min_child_weight = 1,
+                          subsample = 1)
+
+#run model and extract models
+gb_caret1 <- caret::train(data = training_data2,
+                 income ~ .,
+                 method = "xgbTree",
+                 trControl = control,
+                 tuneGrid = tuning_grid,
+                 verbosity = 0)
+gb_2 <- gb_caret1$finalModel
+
+#predictions
+pred_gb_1 <- predict(gb_1, newdata = as.matrix(holdout_data))
+
 
 ```
 
@@ -133,28 +180,52 @@ bma_1 <- bms(training_data2,
            mcmc="bd")
 
 #predictions
+bma_pred <- pred.density(bma_1, training_data2)
+
+#RMSE = 1201.7
+rmse_check <- cbind(bma_pred$fit, training_data2$income) %>% 
+  as.data.frame() %>% 
+  mutate(sq_err = (V1-V2)^2)
+
+RMSE_BMA <- sqrt(sum(rmse_check$sq_err)/count(rmse_check))
+
+#predictions for holdout data
 bma_pred <- pred.density(bma_1, holdout_data)
 
-#do we need to extract the predictions from here somehow???
-
 ```
-
-
 
 ## Compare models
 
 ```{r}
-#basic random forest prediction error
-rf_1$prediction.error
+#basic random forest prediction error. RMSE = 1028.189
+sqrt(rf_1$prediction.error)
 
-#tuned random forest prediction error
-rf_2$prediction.error
+#tuned random forest prediction error. RMSE = 1017.295
+sqrt(rf_2$prediction.error)
 
-#basic boosted regression prediction error
-min(eval_gb_1$evaluation_log$test_rmse_mean)^2
+#tuned boosted regression prediction error. RMSE = 966.8296
+min(gb_caret$results$RMSE)
 
-#tuned boosted regression prediction error
-min(gb_caret$results$RMSE)^2
+#second tuned boosted regression prediction error. RMSE = 967.0741
+min(gb_caret1$results$RMSE)
+
+#Bayesian model averaging prediction error. RMSE = 1201.7
+RMSE_BMA
+
+#gb_1 chosen as model with lowest RMSE
 
 ```
 
+## Final model
+```{r}
+#save final predictions
+final_predictions <- pred_gb_1 %>% 
+  as.data.frame() %>% 
+  rename(income_cross_validators = 1)
+
+#export to csv
+write.csv(final_predictions,
+        "./output_data/predictions.csv",
+        row.names=FALSE)
+
+```
