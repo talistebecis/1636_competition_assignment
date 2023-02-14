@@ -1,27 +1,19 @@
----
-title: "1636 Competition Assignment - The Cross Validators"
-author:
-subtitle: "Data Science and Machine Learning 1636"
-date: "Feb 2023"
-output: 
-  github_document:
-    pandoc_args: --webtex
-    toc: False
-    toc_depth: 2
-    number_sections: False
----
+1636 Competition Assignment - The Cross Validators
+================
+Feb 2023
 
 ### Group Members
--   Talis Tebecis	h12135076
--   Ema Ivanova	h11900690
--   Karin Nagamine	h12131854
--   Stephan Gavric	h12025079
+
+- Talis Tebecis h12135076
+- Ema Ivanova h11900690
+- Karin Nagamine h12131854
+- Stephan Gavric h12025079
 
 ## Setup
 
 First we import the data and load required packages.
 
-```{r}
+``` r
 #load packages
 pacman::p_load(here, tidyverse, ranger, caret, tuneRanger, BMS)
 
@@ -30,15 +22,14 @@ training_data <- read.csv(here("input_data", "trainig_test_data.csv"))
 
 #load hold out data
 holdout_data <- read.csv(here("input_data", "holdout_data.csv"))
-
 ```
 
 ## Data cleaning and imputation
 
-Then, we check the data for NAs and impute where necessary using median for numerical variables and mode for categorical variables.
+Then, we check the data for NAs and impute where necessary using median
+for numerical variables and mode for categorical variables.
 
-```{r, warning = FALSE}
-
+``` r
 ### Training Data
 #check NAs - we find 21,668 observations with NAs, so we shouldn't just drop them
 checkNAs <- training_data %>% filter_all(any_vars(is.na(.))) %>% count()
@@ -87,15 +78,14 @@ holdout_data <- as.data.frame(unclass(holdout_data),
                                 stringsAsFactors = TRUE)
 holdout_data <- lapply(holdout_data, as.numeric) %>% 
   as.data.frame()
-
 ```
-
 
 ## Random Forest
 
-For modelling, we first try a Random Forest model using ranger, then a tuned random forest using the caret package.
+For modelling, we first try a Random Forest model using ranger, then a
+tuned random forest using the caret package.
 
-```{r, eval=FALSE}
+``` r
 #basic random forest
 rf_1 = ranger(data = training_data2, dependent.variable.name = "income", importance = "impurity")
 
@@ -116,14 +106,13 @@ rf_caret = caret::train(data = training_data2,
                  tuneGrid = tuning_grid,
                  importance = "impurity")
 rf_2 <- rf_caret$finalModel
-
 ```
 
 ## Boosted Regression
 
 Next, we test Boosted Regression models, also using caret.
 
-```{r, eval=FALSE}
+``` r
 #setup control
 control <- trainControl(method = "cv", number = 5)
 
@@ -166,15 +155,14 @@ gb_caret1 <- caret::train(data = training_data2,
                  tuneGrid = tuning_grid,
                  verbosity = 0)
 gb_2 <- gb_caret1$finalModel
-
 ```
-
 
 ## Bayesian Model Averaging
 
-Then, we make predictions using Bayesian Model Averaging with the BMS package.
+Then, we make predictions using Bayesian Model Averaging with the BMS
+package.
 
-```{r, eval=FALSE}
+``` r
 #run BMA model
 bma_1 <- bms(training_data2,
            mprior="uniform",
@@ -193,14 +181,15 @@ rmse_check <- cbind(bma_pred$fit, training_data2$income) %>%
   mutate(sq_err = (V1-V2)^2)
 
 RMSE_BMA <- sqrt(sum(rmse_check$sq_err)/count(rmse_check))
-
 ```
 
 ## Compare models
 
-We extract the top model from each tuning process and compare them by RMSE. The best model was the first tuning round of the Boosted Regression model with an RMSE of 966.8296.
+We extract the top model from each tuning process and compare them by
+RMSE. The best model was the first tuning round of the Boosted
+Regression model with an RMSE of 966.8296.
 
-```{r, eval=FALSE}
+``` r
 #basic random forest prediction error. RMSE = 1028.189
 sqrt(rf_1$prediction.error)
 
@@ -217,14 +206,15 @@ min(gb_caret1$results$RMSE)
 RMSE_BMA
 
 #gb_1 (from gb_caret) was chosen as model with lowest RMSE
-
 ```
 
 ## Final model
 
-We then run the chosen model a final time with the parameter values as outlined below. We then make predictions based on the holdout data and export them to a .csv file.
+We then run the chosen model a final time with the parameter values as
+outlined below. We then make predictions based on the holdout data and
+export them to a .csv file.
 
-```{r}
+``` r
 ### Run final model (other chunks set eval=FALSE for computational time)
 #setup control
 control <- trainControl(method = "cv", number = 5)
@@ -257,5 +247,4 @@ final_predictions <- predict(gb_final, newdata = as.matrix(holdout_data)) %>%
 write.csv(final_predictions,
         "./output_data/predictions.csv",
         row.names=FALSE)
-
 ```
